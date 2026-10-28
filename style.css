@@ -81,6 +81,7 @@ h2 { font-size: 18px; margin: 24px 0 10px; }
 .crumb { color: var(--muted); font-size: 14px; margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .stage { font-weight: 700; color: var(--accent); }
 .solve { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; align-items: start; }
+.solve.single { grid-template-columns: minmax(0, 860px); justify-content: center; } /* 지문 없는 문항(영어·수학) */
 .passage {
   position: sticky; top: 64px; max-height: calc(100vh - 84px); overflow: auto;
   background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 10px;
@@ -110,3 +111,11 @@ h2 { font-size: 18px; margin: 24px 0 10px; }
 .mark.ok { color: var(--ok); font-weight: 700; }
 .mark.bad { color: var(--bad); font-weight: 700; }
 .notice { background: var(--accent-soft); color: var(--ink); padding: 14px; border-radius: 10px; margin: 12px 0; line-height: 1.6; }
+
+.short-answer {
+  width: 9em; padding: 10px 12px; font-size: 20px; text-align: center;
+  border: 2px solid var(--line); border-radius: var(--radius); background: var(--card); color: var(--ink);
+}
+.short-answer:focus { outline: none; border-color: var(--accent); }
+.short-answer.correct { border-color: var(--ok); background: var(--ok-soft); }
+.short-answer.wrong { border-color: var(--bad); background: var(--bad-soft); }

@@ -1,5 +1,5 @@
 // 화면 렌더링과 이벤트. 학습 흐름 판단은 logic.js, 결과 전송은 logger.js가 맡는다.
-import { FOLLOW_N, courseOf, itemsInUnit, nextStage, pickFollowUp, pickFollowUps, suneungSets } from "./logic.js";
+import { FOLLOW_N, courseOf, isCorrect, itemsInUnit, nextStage, pickFollowUps, suneungSets } from "./logic.js";
 import { createLogger } from "./logger.js";
 import { APPS_SCRIPT_URL } from "./config.js";
 
@@ -16,6 +16,19 @@ const COURSES = {
     file: "english",
     subjects: [{ name: "영어", units: ["중심 내용 파악", "세부 정보 파악", "언어 형식과 어휘", "논리적 흐름 추론", "장문 독해"] }],
   },
+  수학: {
+    file: "math",
+    subjects: [
+      { name: "대수", units: ["지수함수와 로그함수", "삼각함수", "수열"] },
+      { name: "미적분Ⅰ", units: ["함수의 극한과 연속", "미분", "적분"] },
+      { name: "확률과 통계", units: ["경우의 수", "확률", "통계"] },
+    ],
+  },
+};
+const COURSE_NOTE = {
+  국어: "2022 개정 교육과정(2028학년도 수능) 기준 단원입니다.",
+  영어: "2022 개정 영어Ⅰ·영어Ⅱ 기준 독해 유형입니다(듣기 제외).",
+  수학: "2028학년도 수능 범위(대수·미적분Ⅰ·확률과 통계) 기준 단원입니다. 2015 미적분·기하 문항은 뺐습니다.",
 };
 const app = document.getElementById("app");
 const safeStorage = (() => {
@@ -105,9 +118,7 @@ function unitsView(course = loadCourse()) {
     return h("div", { class: "subject" }, h("h2", { text: name }), h("div", { class: "units" }, buttons));
   });
   show(h("section", {}, h("h1", { text: "단원 선택" }), tabs,
-    h("p", { class: "sub", text: course === "영어"
-      ? "2022 개정 영어Ⅰ·영어Ⅱ 기준 독해 유형입니다(듣기 제외)."
-      : "2022 개정 교육과정(2028학년도 수능) 기준 단원입니다." }), sections));
+    h("p", { class: "sub", text: COURSE_NOTE[course] }), sections));
 }
 
 // ---------- 개념 ----------
@@ -151,14 +162,26 @@ function renderQuestion() {
   const { set, stage, items, pos } = session;
   const item = items[pos];
   let picked = null;
-  const choiceBtns = [1, 2, 3, 4, 5].map((n) =>
+  const short = item.qtype === "단답형"; // 수학 단답형: 숫자를 입력해 답한다
+  const choiceBtns = short ? [] : [1, 2, 3, 4, 5].map((n) =>
     h("button", { class: "choice", "aria-pressed": "false", "aria-label": `${n}번`, onclick: () => pick(n) }, "①②③④⑤"[n - 1]));
   const grade = h("button", { class: "btn", disabled: true, onclick: () => check() }, "채점하기");
+  const numInput = short ? h("input", { class: "short-answer", type: "text", inputmode: "numeric",
+    autocomplete: "off", "aria-label": "답(자연수)", placeholder: "답 입력" }) : null;
+  if (numInput) {
+    numInput.addEventListener("input", () => {
+      numInput.value = numInput.value.replace(/[^0-9]/g, "").slice(0, 3);
+      picked = numInput.value;
+      grade.disabled = picked === "";
+    });
+    numInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !grade.disabled) check(); });
+  }
   const panel = h("div", { class: "question" },
     h("img", { src: item.q_img, alt: `${set.exam_title} ${item.q_no}번 문제` }),
-    h("div", { class: "choices" }, choiceBtns),
+    short ? h("div", { class: "choices" }, numInput) : h("div", { class: "choices" }, choiceBtns),
     h("div", { class: "row" }, grade),
     h("div", { class: "meta", text: `문항 유형: ${item.qtype}` }));
+  if (numInput) setTimeout(() => numInput.focus(), 0);
 
   function pick(n) {
     picked = n;
@@ -166,7 +189,11 @@ function renderQuestion() {
     grade.disabled = false;
   }
   function check() {
-    const correct = picked === item.answer;
+    const correct = isCorrect(item, picked);
+    if (numInput) {
+      numInput.disabled = true;
+      numInput.classList.add(correct ? "correct" : "wrong");
+    }
     choiceBtns.forEach((b, i) => {
       b.disabled = true;
       if (i + 1 === item.answer) b.classList.add("correct");
@@ -182,7 +209,7 @@ function renderQuestion() {
     });
     const last = session.pos === session.items.length - 1;
     panel.prepend(h("div", { class: `feedback ${correct ? "ok" : "bad"}`,
-      text: correct ? "정답입니다!" : `아쉬워요. 정답은 ${"①②③④⑤"[item.answer - 1]}입니다.` }));
+      text: correct ? "정답입니다!" : `아쉬워요. 정답은 ${short ? item.answer : "①②③④⑤"[item.answer - 1]}입니다.` }));
     panel.append(h("div", { class: "row", style: "margin-top:12px" },
       h("button", { class: "btn", onclick: () => (last ? finishSet() : (session.pos++, renderQuestion())) },
         last ? "세트 마치기" : "다음 문항")));
@@ -195,7 +222,7 @@ function renderQuestion() {
       h("span", { text: session.key.split("/").slice(1).join(" › ") }),
       h("span", { text: set.source }),
       h("span", { text: `${pos + 1} / ${items.length}` })),
-    h("div", { class: "solve" },
+    h("div", { class: set.set_img ? "solve" : "solve single" },
       set.set_img ? h("div", { class: "passage" }, h("img", { src: set.set_img, alt: "지문" })) : null,
       panel));
 }
@@ -223,7 +250,8 @@ function finishSet() {
 function summaryView() {
   const nextSuneung = session.suneung[session.idx + 1];
   const wrong = session.history.filter((r) => !r.correct);
-  const qtypes = [...new Set(wrong.map((r) => r.qtype))];
+  // 수학의 5지선다형·단답형은 답하는 방식일 뿐 다시 볼 유형이 아니다
+  const qtypes = [...new Set(wrong.map((r) => r.qtype))].filter((t) => t !== "5지선다형" && t !== "단답형");
   const moreStage = session.stage === "수능" ? "기본" : session.stage;
   const more = pickFollowUps(data, session.key, moreStage, qtypes, session.done, FOLLOW_N[courseOf(session.key)]);
   show(h("section", { class: "card narrow" },

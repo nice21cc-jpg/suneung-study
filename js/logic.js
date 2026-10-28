@@ -19,11 +19,25 @@ export function nextStage(results) {
   return results.every((r) => r.correct) ? "심화" : "기본";
 }
 
-// 과목: 소단원 키의 첫 칸이 "영어"면 영어, 나머지(문학·독서와 작문·화법과 언어)는 국어
-export const courseOf = (unitKey) => (unitKey.startsWith("영어/") ? "영어" : "국어");
+// 과목: 소단원 키의 첫 칸으로 정한다(문학·독서와 작문·화법과 언어는 국어)
+const MATH_SUBJECTS = ["대수", "미적분Ⅰ", "확률과 통계"];
+export const courseOf = (unitKey) => {
+  const subject = unitKey.split("/")[0];
+  if (subject === "영어") return "영어";
+  return MATH_SUBJECTS.includes(subject) ? "수학" : "국어";
+};
 
-// 분기 때 이어서 풀 최소 문항 수: 영어는 한 문항짜리 세트가 많아 3문항이 될 때까지 세트를 묶는다
-export const FOLLOW_N = { 국어: 1, 영어: 3 };
+// 분기 때 이어서 풀 최소 문항 수: 영어·수학은 한 문항짜리 세트가 많아 3문항이 될 때까지 세트를 묶는다
+export const FOLLOW_N = { 국어: 1, 영어: 3, 수학: 3 };
+
+// 채점: 수학 단답형은 입력한 글자를 정수로 바꿔 비교한다
+export function isCorrect(item, picked) {
+  if (item.qtype === "단답형") {
+    const s = String(picked ?? "").trim();
+    return /^\d+$/.test(s) && Number(s) === item.answer;
+  }
+  return picked === item.answer;
+}
 
 // 같은 소단원·같은 난이도의 모의고사 세트 중 틀린 유형과 겹치는 세트를 먼저, 그다음 최신 시험 순으로
 // 해당 소단원 문항이 n개 이상 될 때까지 고른다
