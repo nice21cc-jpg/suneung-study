@@ -1,13 +1,22 @@
 // 화면 렌더링과 이벤트. 학습 흐름 판단은 logic.js, 결과 전송은 logger.js가 맡는다.
-import { itemsInUnit, nextStage, pickFollowUp, suneungSets } from "./logic.js";
+import { FOLLOW_N, courseOf, itemsInUnit, nextStage, pickFollowUp, pickFollowUps, suneungSets } from "./logic.js";
 import { createLogger } from "./logger.js";
 import { APPS_SCRIPT_URL } from "./config.js";
 
-const SUBJECTS = [
-  { name: "화법과 언어", units: ["화법", "언어"] },
-  { name: "독서와 작문", units: ["독서", "작문"] },
-  { name: "문학", units: ["문학"] },
-];
+const COURSES = {
+  국어: {
+    file: "korean",
+    subjects: [
+      { name: "화법과 언어", units: ["화법", "언어"] },
+      { name: "독서와 작문", units: ["독서", "작문"] },
+      { name: "문학", units: ["문학"] },
+    ],
+  },
+  영어: {
+    file: "english",
+    subjects: [{ name: "영어", units: ["중심 내용 파악", "세부 정보 파악", "언어 형식과 어휘", "논리적 흐름 추론", "장문 독해"] }],
+  },
+};
 const app = document.getElementById("app");
 const safeStorage = (() => {
   try { return window.localStorage; } catch { return { getItem: () => null, setItem: () => {} }; }
@@ -62,14 +71,22 @@ function startView() {
     go("#/units");
   });
   show(h("section", { class: "card narrow" },
-    h("h1", { text: "수능 국어 기출 자습" }),
+    h("h1", { text: "수능 기출 자습" }),
     h("p", { class: "sub", text: "반·번호·이름을 입력하면 풀이 결과가 선생님께 전달됩니다." }),
     wrap));
 }
 
 // ---------- 단원 ----------
-function unitsView() {
-  const sections = SUBJECTS.map(({ name, units }) => {
+function loadCourse() {
+  const c = safeStorage.getItem("course");
+  return COURSES[c] ? c : "국어";
+}
+
+function unitsView(course = loadCourse()) {
+  try { safeStorage.setItem("course", course); } catch { /* 기억하지 못해도 동작 */ }
+  const tabs = h("div", { class: "tabs", role: "tablist" }, Object.keys(COURSES).map((c) =>
+    h("button", { class: "tab", role: "tab", "aria-selected": String(c === course), onclick: () => go(`#/units/${enc(c)}`) }, c)));
+  const sections = COURSES[course].subjects.map(({ name, units }) => {
     const buttons = [];
     for (const unit of units) {
       const subs = data.units.filter((u) => u.subject === name && u.unit === unit);
@@ -87,8 +104,10 @@ function unitsView() {
     }
     return h("div", { class: "subject" }, h("h2", { text: name }), h("div", { class: "units" }, buttons));
   });
-  show(h("section", {}, h("h1", { text: "단원 선택" }),
-    h("p", { class: "sub", text: "2022 개정 교육과정(2028학년도 수능) 기준 단원입니다." }), sections));
+  show(h("section", {}, h("h1", { text: "단원 선택" }), tabs,
+    h("p", { class: "sub", text: course === "영어"
+      ? "2022 개정 영어Ⅰ·영어Ⅱ 기준 독해 유형입니다(듣기 제외)."
+      : "2022 개정 교육과정(2028학년도 수능) 기준 단원입니다." }), sections));
 }
 
 // ---------- 개념 ----------
@@ -108,12 +127,12 @@ function conceptView(key) {
     h("ul", { class: "points" }, u.points.map((p) => h("li", { text: p }))),
     h("div", { class: "row", style: "margin-top:20px" },
       h("button", { class: "btn", onclick: () => startSession(key) }, "수능 문제 풀기"),
-      h("button", { class: "btn ghost", onclick: () => go("#/units") }, "단원 목록"))));
+      h("button", { class: "btn ghost", onclick: () => go(`#/units/${enc(courseOf(key))}`) }, "단원 목록"))));
 }
 
 // ---------- 풀이 ----------
 function startSession(key) {
-  session = { key, suneung: suneungSets(data, key), idx: 0, done: new Set(), history: [] };
+  session = { key, suneung: suneungSets(data, key), idx: 0, done: new Set(), history: [], queue: [] };
   if (!session.suneung.length) return show(h("p", { class: "empty", text: "이 단원의 수능 기출이 아직 없습니다." }));
   beginSet(session.suneung[0], "수능");
 }
@@ -185,14 +204,18 @@ function finishSet() {
   if (session.stage === "수능") {
     const stage = nextStage(session.results);
     const wrongTypes = session.results.filter((r) => !r.correct).map((r) => r.qtype);
-    const follow = pickFollowUp(data, session.key, stage, wrongTypes, session.done);
+    const n = FOLLOW_N[courseOf(session.key)];
+    const follows = pickFollowUps(data, session.key, stage, wrongTypes, session.done, n);
     const msg = stage === "심화"
       ? "수능 세트를 모두 맞혔어요! 같은 주제의 심화 문제에 도전해 볼까요?"
       : "틀린 문항이 있어요. 같은 주제의 기본 문제로 개념을 다시 확인해 봅시다.";
-    if (follow) {
+    if (follows.length) {
+      const label = follows.length > 1 ? `${stage} 문제 ${follows.reduce((n, s) => n + itemsInUnit(s, session.key).length, 0)}문항 풀기` : `${stage} 문제 풀기`;
       return show(h("section", { class: "card narrow" }, h("p", { class: "notice", text: msg }),
-        h("button", { class: "btn", onclick: () => beginSet(follow, stage) }, `${stage} 문제 풀기`)));
+        h("button", { class: "btn", onclick: () => { session.queue = follows.slice(1); beginSet(follows[0], stage); } }, label)));
     }
+  } else if (session.queue.length) {
+    return beginSet(session.queue.shift(), session.stage);
   }
   summaryView();
 }
@@ -202,7 +225,7 @@ function summaryView() {
   const wrong = session.history.filter((r) => !r.correct);
   const qtypes = [...new Set(wrong.map((r) => r.qtype))];
   const moreStage = session.stage === "수능" ? "기본" : session.stage;
-  const more = pickFollowUp(data, session.key, moreStage, qtypes, session.done);
+  const more = pickFollowUps(data, session.key, moreStage, qtypes, session.done, FOLLOW_N[courseOf(session.key)]);
   show(h("section", { class: "card narrow" },
     h("h1", { text: "학습 결과" }),
     h("p", { class: "sub", text: `${session.key.split("/").slice(1).join(" › ")} · ${session.history.length}문항 중 ${session.history.length - wrong.length}문항 정답` }),
@@ -212,9 +235,9 @@ function summaryView() {
     qtypes.length ? h("p", { class: "notice", text: `다시 볼 문항 유형: ${qtypes.join(", ")}` }) : null,
     h("div", { class: "row", style: "margin-top:16px" },
       nextSuneung ? h("button", { class: "btn", onclick: () => { session.idx++; beginSet(nextSuneung, "수능"); } }, "다음 수능 세트") : null,
-      more ? h("button", { class: "btn ghost", onclick: () => beginSet(more, moreStage) }, "같은 단계 더 풀기") : null,
+      more.length ? h("button", { class: "btn ghost", onclick: () => { session.queue = more.slice(1); beginSet(more[0], moreStage); } }, "같은 단계 더 풀기") : null,
       h("button", { class: "btn ghost", onclick: () => go(`#/u/${enc(session.key)}`) }, "개념 다시 보기"),
-      h("button", { class: "btn ghost", onclick: () => go("#/units") }, "다른 단원"))));
+      h("button", { class: "btn ghost", onclick: () => go(`#/units/${enc(courseOf(session.key))}`) }, "다른 단원"))));
 }
 
 // ---------- 라우팅 ----------
@@ -223,17 +246,25 @@ function route() {
   const m = location.hash.match(/^#\/u\/(.+)$/);
   if (m) return conceptView(decodeURIComponent(m[1]));
   if (location.hash === "#/start") return startView();
-  return unitsView();
+  const c = location.hash.match(/^#\/units\/(.+)$/);
+  return unitsView(c && COURSES[decodeURIComponent(c[1])] ? decodeURIComponent(c[1]) : undefined);
 }
 
 async function main() {
   student = loadStudent();
   renderWho();
-  try {
-    data = await (await fetch("data/korean.json")).json();
-  } catch {
+  // 과목별 데이터를 합친다. 한 과목 파일을 못 불러와도 다른 과목은 쓸 수 있게 한다.
+  const loaded = await Promise.all(Object.values(COURSES).map(({ file }) =>
+    fetch(`data/${file}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null)));
+  const parts = loaded.filter(Boolean);
+  if (!parts.length) {
     return show(h("p", { class: "empty", text: "문제 데이터를 불러오지 못했습니다. 잠시 후 새로고침해 주세요." }));
   }
+  data = {
+    units: parts.flatMap((p) => p.units),
+    standards: Object.assign({}, ...parts.map((p) => p.standards)),
+    sets: parts.flatMap((p) => p.sets),
+  };
   window.addEventListener("hashchange", route);
   window.addEventListener("online", () => logger.flushQueue());
   logger.flushQueue();

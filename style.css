@@ -52,6 +52,12 @@ h2 { font-size: 18px; margin: 24px 0 10px; }
 @media (max-width: 560px) { .form { grid-template-columns: 1fr; } }
 
 /* 단원 */
+.tabs { display: flex; gap: 6px; margin: 4px 0 12px; border-bottom: 1px solid var(--line); }
+.tab {
+  background: transparent; border: 0; border-bottom: 3px solid transparent;
+  padding: 8px 18px; font-weight: 600; color: var(--muted);
+}
+.tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
 .subject { margin-bottom: 18px; }
 .units { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
 .unit {
